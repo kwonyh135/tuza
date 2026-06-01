@@ -122,7 +122,6 @@ def fetch_bitget_history_frame(symbol, timeframe, limit, since_ms=None, now_ms=N
 
     rows = []
     end_ms = now_ms
-    timeframe_ms = timeframe_to_milliseconds(timeframe)
 
     while len(rows) < limit:
         if since_ms is not None and end_ms <= since_ms:
@@ -155,7 +154,7 @@ def fetch_bitget_history_frame(symbol, timeframe, limit, since_ms=None, now_ms=N
         rows = filtered + rows
 
         first_timestamp = min(int(row[0]) for row in batch)
-        next_end = first_timestamp - timeframe_ms
+        next_end = first_timestamp
         if next_end >= end_ms:
             break
         end_ms = next_end

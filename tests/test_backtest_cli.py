@@ -1,11 +1,13 @@
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from backtest import (
     build_since_from_limit,
     candles_for_days,
     describe_recommended_limits,
+    fetch_bitget_history_frame,
     fetch_ohlcv_frame,
     format_five_minute_skip_notice,
     format_account_summary_lines,
@@ -118,6 +120,41 @@ class BacktestCliTests(unittest.TestCase):
         self.assertEqual(len(frame), 200)
         self.assertEqual(exchange.calls, 1)
 
+    def test_fetch_bitget_history_frame_keeps_page_boundary_candle(self):
+        base = 1_700_000_000_000
+        one_hour = 60 * 60 * 1000
+        candles = [
+            [
+                str(base + index * one_hour),
+                "100.0",
+                "101.0",
+                "99.0",
+                "100.0",
+                "1.0",
+            ]
+            for index in range(6)
+        ]
+        calls = []
+
+        def fake_get(url, params, timeout):
+            self.assertEqual(url, "https://api.bitget.com/api/v2/mix/market/history-candles")
+            self.assertEqual(timeout, 20)
+            calls.append(params["endTime"])
+            eligible = [row for row in candles if int(row[0]) < params["endTime"]]
+            return FakeBitgetResponse(eligible[-3:])
+
+        with patch("backtest.requests.get", side_effect=fake_get):
+            frame = fetch_bitget_history_frame(
+                "BTC/USDT:USDT",
+                "1h",
+                6,
+                since_ms=base,
+                now_ms=base + 6 * one_hour,
+            )
+
+        self.assertEqual(list(frame["timestamp"]), [base + index * one_hour for index in range(6)])
+        self.assertEqual(calls, [base + 6 * one_hour, base + 3 * one_hour])
+
     def test_save_and_load_ohlcv_csv_round_trips_dataset(self):
         frame = fetch_ohlcv_frame(
             "BTC/USDT:USDT",
@@ -157,6 +194,17 @@ class FakeExchange:
             timestamp = current + index * 60 * 60 * 1000
             rows.append([timestamp, 100.0, 101.0, 99.0, 100.0, 1.0])
         return rows
+
+
+class FakeBitgetResponse:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return {"code": "00000", "data": self.rows}
 
 
 if __name__ == "__main__":
